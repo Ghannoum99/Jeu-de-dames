@@ -1,0 +1,1238 @@
+
+#include "graphics.h"
+
+#define TAILLE 800
+#define coulPlatClair 0xFFEED8
+#define coulPlatSombre 0x45331D
+#define coulFond 0x006D9F
+#define coulFondOmbre 0x1F5B67
+
+
+
+typedef enum 
+{
+	VIDE, PION, DAME
+} TYPE; 
+
+typedef enum 
+{
+	J1, J2
+} JOUEUR;
+
+typedef enum 
+{
+	NORMAL, SELECT, JOUABLE
+} ETAT;
+
+
+typedef struct numCase {
+	int l, c;
+} numCase;
+
+
+typedef struct
+{
+	TYPE type;
+	JOUEUR joueur;
+	ETAT etat;
+} PIECE;
+
+typedef struct
+{
+	int j1;
+	int j2;
+} COMPTEUR;
+
+BOOL est_parite_egale(int a, int b);
+
+	void init_tabJeu();
+
+	BOOL arrivees_possibles (numCase depart, int tour);
+		BOOL est_tour_correct (numCase depart, int tour);
+		int arrivees_j1_sans_prise(numCase depart);
+		int arrivees_j2_sans_prise(numCase depart);
+		int arrivees_j1_avec_prise(numCase depart, int coulAdverse);
+		int arrivees_j2_avec_prise(numCase depart, int coulAdverse);
+
+	COMPTEUR suppresion_pion_adverse(numCase elimine, COMPTEUR compteur);
+	COMPTEUR applique_coup_tab(numCase depart, numCase arrivee, COMPTEUR compteur);
+
+	BOOL est_joueur_bloque(int tour);
+
+	// Vue
+	void affiche_fond_ecran_titre_fin();
+	void affiche_ecran_titre();
+		void affiche_infos_ecran_titre();
+	void affiche_ecran_fin(int intGraph, int tour);
+		void affiche_infos_ecran_fin(int intGraph, int tour);
+		void affiche_bouton_rejouer_quitter();
+
+	void affiche_fenetre(int intGraph);
+		void affiche_plateau_ig1();
+		void affiche_plateau_ig2();
+		void affiche_tous_les_pions(int intGraph);
+			void affiche_piece_ig1 (POINT centre, PIECE piece);
+			void affiche_piece_ig2 (POINT centre, PIECE piece);
+			void affiche_couronne(POINT p, COULEUR coul);
+			void efface_piece(POINT p, int intGraph);
+		void affiche_fond_infos();
+		void affiche_informations_statiques(int intGraph);
+
+	void affiche_informations_dynamiques(COMPTEUR compteur, int tour, BOOL multiplePossible, int intGraph);
+		void efface_zone_chiffre (POINT centre);
+		void affiche_bouton_stop();
+		void efface_bouton_stop();
+		void efface_zone_pion (POINT centre);
+
+	void reset_etat_cases();
+	void affiche_etat_des_cases(int intGraph);
+	void efface_etat_case(int intGraph, numCase indice);
+	void affiche_etat_case_normal(int intGraph, numCase indice);
+	void affiche_etat_case_select_ou_jouable(int intGraph, numCase indice);
+
+	void applique_coup_vue(numCase indDepart, numCase indArrivee, int intGraph);
+
+	// Controleur
+	int choix_interface_graphique();
+	BOOL choix_ecran_fin();
+
+	numCase transforme_point_en_indice_ig1 (POINT p);
+	numCase transforme_point_en_indice_ig2 (POINT p);
+	POINT transforme_indice_en_point_ig1(numCase indice);
+	POINT transforme_indice_en_point_ig2(numCase indice);
+
+	BOOL est_dans_jeu (POINT p);
+	BOOL est_arrivee_possible (numCase indice, int intGraph);
+	BOOL peut_prise_multiple(numCase arrivee, BOOL prise);
+
+	BOOL clic_stop(POINT p, BOOL multiplePossible);
+PIECE tabJeu[10][10];
+
+BOOL est_parite_egale(int a, int b)
+{
+	if(a%2 == b%2)
+		return true;
+	else
+		return false;
+}
+
+void init_tabJeu()
+{
+	int i, j;
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			if(!est_parite_egale(i,j))
+			{
+				if(i <= 3)
+				{
+					tabJeu[i][j].type = PION;
+					tabJeu[i][j].joueur = J1;
+				}
+				else if(i <= 5)
+					tabJeu[i][j].type = VIDE;
+				else
+				{
+					tabJeu[i][j].type = PION;
+					tabJeu[i][j].joueur = J2;
+				}
+			}
+			else
+				tabJeu[i][j].type = VIDE;
+
+			tabJeu[i][j].etat = NORMAL;
+		}
+	}
+}
+
+BOOL arrivees_possibles(numCase depart, int tour)
+{
+	int compteur = 0, temp, coulAdverse;
+
+	if(est_tour_correct(depart,tour))
+	{
+		if(tabJeu[depart.l][depart.c].joueur == J1)
+			coulAdverse = J2;
+		else
+			coulAdverse = J1;
+
+		if(tabJeu[depart.l][depart.c].type == DAME || tabJeu[depart.l][depart.c].joueur == J1)
+		{
+			temp = arrivees_j1_sans_prise(depart);
+			compteur += temp;
+			temp = arrivees_j1_avec_prise(depart,coulAdverse);
+			compteur += temp;
+		}
+
+		if(tabJeu[depart.l][depart.c].type == DAME || tabJeu[depart.l][depart.c].joueur == J2)
+		{
+			temp = arrivees_j2_sans_prise(depart);
+			compteur += temp;
+			temp = arrivees_j2_avec_prise(depart,coulAdverse);
+			compteur += temp;
+		}
+	}
+
+	if(compteur != 0)
+	{
+		tabJeu[depart.l][depart.c].etat = SELECT;
+		return true;
+	}
+	else
+		return false;
+}
+
+BOOL est_tour_correct(numCase depart, int tour)
+{
+	if(tabJeu[depart.l][depart.c].type != VIDE &&
+		((tour%2 == 1 && tabJeu[depart.l][depart.c].joueur == J1) || (tour%2 == 0 && tabJeu[depart.l][depart.c].joueur == J2)))
+	{
+		return true;
+	}
+	else
+		return false;
+}
+
+int arrivees_j1_sans_prise(numCase depart)
+{
+	numCase indiceDest;
+	int cpt = 0;
+
+	if(depart.c > 0 && depart.l < 9 && tabJeu[depart.l+1][depart.c-1].type == VIDE)
+	{
+		indiceDest.l = depart.l + 1; indiceDest.c = depart.c- 1;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	if(depart.c < 9 && depart.l < 9 && tabJeu[depart.l+1][depart.c+1].type == VIDE)
+	{
+		indiceDest.l = depart.l + 1; indiceDest.c = depart.c + 1;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	return cpt;
+}
+
+int arrivees_j2_sans_prise(numCase depart)
+{
+	numCase indiceDest;
+	int cpt = 0;
+
+	if(depart.c > 0 && depart.l > 0 && tabJeu[depart.l-1][depart.c-1].type == VIDE)
+	{
+		indiceDest.l = depart.l - 1; indiceDest.c = depart.c - 1;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	if(depart.c < 9 && depart.l > 0 && tabJeu[depart.l-1][depart.c+1].type == VIDE)
+	{
+		indiceDest.l = depart.l - 1; indiceDest.c = depart.c + 1;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	return cpt;
+}
+
+int arrivees_j1_avec_prise(numCase depart, int coulAdverse)
+{
+	numCase indiceDest;
+	int cpt = 0;
+
+	if(depart.c < 8 && depart.l < 8 && tabJeu[depart.l+1][depart.c+1].type != VIDE && tabJeu[depart.l+1][depart.c+1].joueur == coulAdverse && tabJeu[depart.l+2][depart.c+2].type == VIDE)
+	{
+		indiceDest.l = depart.l	 + 2; indiceDest.c = depart.c + 2;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	if(depart.c > 1 && depart.l < 8 && tabJeu[depart.l+1][depart.c-1].type != VIDE && tabJeu[depart.l+1][depart.c-1].joueur == coulAdverse && tabJeu[depart.l+2][depart.c-2].type == VIDE)
+	{
+		indiceDest.l = depart.l + 2; indiceDest.c = depart.c - 2;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	return cpt;
+}
+
+int arrivees_j2_avec_prise(numCase depart, int coulAdverse)
+{
+	numCase indiceDest;
+	int cpt = 0;
+
+	if(depart.c < 8 && depart.l > 1 && tabJeu[depart.l-1][depart.c+1].type != VIDE && tabJeu[depart.l-1][depart.c+1].joueur == coulAdverse && tabJeu[depart.l-2][depart.c+2].type == VIDE)
+	{
+		indiceDest.l = depart.l - 2; indiceDest.c = depart.c + 2;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	if(depart.c > 1 && depart.l > 1 && tabJeu[depart.l-1][depart.c-1].type != VIDE && tabJeu[depart.l-1][depart.c-1].joueur == coulAdverse && tabJeu[depart.l-2][depart.c-2].type == VIDE)
+	{
+		indiceDest.l = depart.l - 2; indiceDest.c = depart.c - 2;
+		tabJeu[indiceDest.l][indiceDest.c].etat = JOUABLE;
+		cpt++;
+	}
+
+	return cpt;
+}
+
+COMPTEUR suppresion_pion_adverse(numCase elimine, COMPTEUR compteur)
+{
+	if(tabJeu[elimine.l][elimine.c].joueur == J1)
+		compteur.j1--;
+	else
+		compteur.j2--;
+
+	tabJeu[elimine.l][elimine.c].type = VIDE;
+	return compteur;
+}
+
+COMPTEUR applique_coup_tab(numCase depart, numCase arrivee, COMPTEUR compteur)
+{
+	int ligneFinale, varJoueur;
+	numCase adverse;
+	adverse.l = 0; adverse.c = 0;
+
+	if(tabJeu[depart.l][depart.c].joueur == J1)
+	{
+		ligneFinale = 9;
+		varJoueur = J1;
+	}
+	else
+	{
+		ligneFinale = 0;
+		varJoueur = J2;
+	}
+
+	if(arrivee.l == ligneFinale || tabJeu[depart.l][depart.c].type == DAME)
+		tabJeu[arrivee.l][arrivee.c].type = DAME;
+	else
+		tabJeu[arrivee.l][arrivee.c].type = PION;
+
+	tabJeu[arrivee.l][arrivee.c].joueur = varJoueur;
+	tabJeu[depart.l][depart.c].type = VIDE;
+
+	if(abs(depart.l - arrivee.l) == 2)
+	{
+		adverse.l = (depart.l + arrivee.l) / 2;
+		adverse.c = (depart.c + arrivee.c)/ 2;
+		compteur = suppresion_pion_adverse(adverse,compteur);
+	}
+
+	return compteur;
+}
+
+BOOL est_joueur_bloque(int tour)
+{
+	int i,j;
+	numCase indice;
+
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			indice.l = i;
+			indice.c = j;
+
+			if(arrivees_possibles(indice,tour))
+				return false;
+		}
+	}
+
+	return true;
+}
+
+
+/*VUE*/
+
+
+void affiche_fond_ecran_titre_fin()
+{
+	POINT p1,p2;
+
+	p1.x = 0; p1.y = 800;
+	p2.x = 1200; p2.y = 0;
+	draw_fill_rectangle(p1,p2,coulFondOmbre);
+
+	p1.x += 30; p1.y -= 30;
+	p2.x -= 30; p2.y += 30;
+	draw_fill_rectangle(p1,p2,crimson);
+
+	p2.x -= 25;
+	draw_fill_rectangle(p1,p2,brown);
+
+	p1.x += 25;
+	p2.y += 25;
+	draw_fill_rectangle(p1,p2,crimson);
+
+	p1.y -= 25;
+	draw_fill_rectangle(p1,p2,coulFond);
+}
+
+void affiche_ecran_titre()
+{
+	affiche_fond_ecran_titre_fin();
+	affiche_infos_ecran_titre();
+	affiche_all();
+}
+
+void affiche_infos_ecran_titre()
+{
+	POINT p1,p2;
+	PIECE piece;
+
+	p1.x = 490; p1.y = 745;
+	aff_pol("DAMES",62,p1,gold);
+
+	piece.type = DAME;
+	piece.joueur = J2;
+	p1.x = 450; p1.y -= 40;
+	affiche_piece_ig1(p1,piece);
+	p1.x = 750;
+	affiche_piece_ig1(p1,piece);
+
+	piece.type = PION;
+	p1.x = 400; p1.y = 400;
+	affiche_piece_ig1(p1,piece);
+	p2.x = p1.x + 50; p2.y = p1.y - 50;
+	p1.x -= 50; p1.y += 50;
+	draw_rectangle(p1,p2,gold);
+
+	p1.x = 800; p1.y = 400;
+	piece.joueur = J1;
+	affiche_piece_ig2(p1,piece);
+	p2.x = p1.x + 50; p2.y = p1.y - 50;
+	p1.x -= 50; p1.y += 50;
+	draw_rectangle(p1,p2,gold);
+
+	p1.x = 365; p1.y = 250;
+	aff_pol("Choisissez votre interface graphique",26,p1,gris);
+}
+
+void affiche_ecran_fin(int intGraph, int tour)
+{
+	affiche_fond_ecran_titre_fin();
+	affiche_infos_ecran_fin(intGraph,tour);
+	affiche_bouton_rejouer_quitter();
+	affiche_all();
+}
+
+void affiche_infos_ecran_fin(int intGraph, int tour)
+{
+	POINT p1;
+	PIECE piece;
+
+	p1.x = 600; p1.y = 500;
+	piece.type = PION;
+
+	if(tour%2 == 1)
+		piece.joueur = J2;
+	else
+		piece.joueur = J1;
+
+	if(intGraph == 1)
+		affiche_piece_ig1(p1,piece);
+	else
+		affiche_piece_ig2(p1,piece);
+
+	p1.x = 500; p1.y = 450;
+	aff_pol("Félicitations, vous avez gagné!",45,p1,gold);
+}
+
+void affiche_bouton_rejouer_quitter()
+{
+	POINT p1, p2, p3;
+	int i;
+	COULEUR coul1, coul2, coul3;
+
+	for(i=0;i<2;i++)
+	{
+		if(i == 0)
+		{
+			p1.x = 300; p1.y = 240;
+			coul1 = goldenrod;
+			coul2 = gold;
+			coul3 = orange;
+		}
+		else
+		{
+			p1.x = 700; p1.y = 240;
+			coul1 = darkred;
+			coul2 = crimson;
+			coul3 = coral;
+		}
+
+		p2.x = p1.x + 200;
+		p2.y = p1.y - 80;
+
+		draw_fill_rectangle(p1,p2,coul1);
+
+		p1.x += 5; p1.y -= 5;
+		p2.x -= 5; p2.y += 5;
+		p3.x = p1.x; p3.y = p2.y;
+		draw_fill_triangle(p2,p1,p3,coul2);
+
+		p3.x = p2.x; p3.y = p1.y;
+		draw_fill_triangle(p2,p1,p3,coul3);
+
+		p1.y -= 15; p1.x += 20;
+		if(i == 0)
+			aff_pol("REJOUER",32,p1,floralwhite);
+		else
+			aff_pol("QUITTER",32,p1,floralwhite);
+	}
+}
+
+void affiche_couronne(POINT p, COULEUR coul)
+{
+	POINT p1, p2, p3;
+	int taille = 12;
+
+	p1.x = p.x; p1.y = p.y + taille - 3;
+	p2.x = p.x - taille; p2.y = p.y - taille;
+	p3.x = p.x + taille; p3.y = p.y - taille;
+
+	draw_fill_triangle(p1,p2,p3,orange);
+	draw_triangle(p1,p2,p3,coul);
+	draw_fill_circle(p1,2,orange);
+
+	p1.x -= taille; p1.y += 3;
+	p3.x -= taille;
+
+	draw_fill_triangle(p3,p1,p2,gold);
+	draw_line(p1,p3,coul);
+	draw_fill_circle(p1,2,gold);
+
+	p1.x += taille*2;
+	p2.x += taille*2;
+
+	draw_fill_triangle(p3,p1,p2,gold);
+	draw_line(p1,p3,coul);
+	draw_fill_circle(p1,2,gold);
+}
+
+
+void affiche_fenetre(int intGraph)
+{
+	if(intGraph == 1)
+		affiche_plateau_ig1();
+	else
+		affiche_plateau_ig2();
+
+	affiche_tous_les_pions(intGraph);
+
+	affiche_fond_infos();
+	affiche_informations_statiques(intGraph);
+	affiche_all();
+}
+
+void affiche_plateau_ig1()
+{
+	POINT p1,p2;
+	numCase indice;
+	int i,j;
+
+	p1.x = 0; p1.y = 0;
+	p2.x = TAILLE ; p2.y = TAILLE;
+	draw_fill_rectangle(p1,p2,blanc);
+
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			indice.l = i;
+			indice.c = j;
+			p1 = transforme_indice_en_point_ig1(indice);
+
+			if(est_parite_egale(indice.l,indice.c))
+				draw_circle(p1,TAILLE/22,noir);
+
+			else
+				draw_fill_circle(p1,TAILLE/22,noir);
+		}
+	}
+}
+
+void affiche_plateau_ig2()
+{
+	POINT p1, p2;
+	int i, j;
+
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			p1.x=i*TAILLE/10; p1.y=j*TAILLE/10;
+			p2.x=(i+1)*TAILLE/10; p2.y=(j+1)*TAILLE/10;
+
+			if(est_parite_egale(i,j))
+				draw_fill_rectangle(p1,p2,coulPlatSombre);
+			else
+				draw_fill_rectangle(p1,p2,coulPlatClair);
+		}
+	}
+}
+
+void affiche_tous_les_pions(int intGraph)
+{
+	numCase indice;
+	POINT p;
+	int i, j;
+
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			if(tabJeu[i][j].type == PION)
+			{
+				indice.l = i;
+				indice.c = j;
+
+				if(intGraph == 1)
+				{
+					p = transforme_indice_en_point_ig1(indice);
+					affiche_piece_ig1(p,tabJeu[indice.l][indice.c]);
+				}
+				else
+				{
+					p = transforme_indice_en_point_ig2(indice);
+					affiche_piece_ig2(p,tabJeu[indice.l][indice.c]);
+				}
+			}
+		}
+	}
+}
+
+void affiche_piece_ig1(POINT centre, PIECE piece)
+{
+	POINT p1, p2, p3;
+	COULEUR couleur;
+
+	p1 = centre; p2 = centre; p3 = centre;
+	p1.x -= TAILLE / 40;
+	p2.x += TAILLE / 40;
+	p3.y -= TAILLE / 40;
+
+	if(piece.joueur == J1)
+		couleur = rouge;
+	else
+		couleur = orange;
+
+	draw_fill_triangle(p3,p2,p1,couleur);
+
+	p3.y += TAILLE / 20;
+
+	if(piece.type == PION)
+		draw_triangle(p1,p2,p3,couleur);
+	else
+		draw_fill_triangle(p3,p2,p1,couleur);
+}
+
+void affiche_piece_ig2(POINT centre, PIECE piece)
+{
+	COULEUR coul1, coul2;
+
+	if(piece.joueur == J1)
+	{
+		coul1 = silver;
+		coul2 = floralwhite;
+	}
+	else
+	{
+		coul1 = crimson;
+		coul2 = rouge;
+	}
+
+	draw_fill_circle(centre,TAILLE/25,coul1);
+	draw_fill_circle(centre,TAILLE/28,coul2);
+	draw_circle(centre,TAILLE/40,coul1);
+
+	if(piece.type == DAME)
+		affiche_couronne(centre,coul2);
+}
+
+void efface_piece(POINT p, int intGraph)
+{
+	POINT p1, p2;
+   int diviseur;
+   COULEUR coulCase;
+
+   if(intGraph == 1)
+   {
+      coulCase = noir;
+      diviseur = 40;
+   }
+   else
+   {
+      coulCase = coulPlatSombre;
+      diviseur = 20;
+   }
+
+	p1.x = p.x - TAILLE/diviseur; p1.y = p.y + TAILLE/diviseur;
+	p2.x = p.x + TAILLE/diviseur; p2.y = p.y - TAILLE/diviseur;
+
+	draw_fill_rectangle(p1,p2,coulCase);
+}
+
+void affiche_fond_infos()
+{
+	POINT p1, p2;
+	int i;
+
+	p1.x = TAILLE; p1.y = TAILLE;
+	p2.x = p1.x + TAILLE/2; p2.y = 0;
+
+	for(i=0;i<10;i++)
+	{
+		draw_rectangle(p1,p2,coulFondOmbre);
+		p1.x += 1; p1.y -= 1;
+		p2.x -= 1; p2.y += 1;
+	}
+
+	draw_fill_rectangle(p1,p2,coulFond);
+}
+
+void affiche_informations_statiques(int intGraph)
+{
+	POINT p;
+	PIECE piece;
+
+	piece.type = PION;
+
+	p.x = 850; p.y = 750;
+	aff_pol("T",32,p,snow);
+	p.x = 870; p.y = 745;
+	aff_pol("A qui de jouer :",28,p,snow);
+
+	p.x = 900; p.y = 650;
+	aff_pol("TOUR",32,p,snow);
+
+	piece.joueur = J1;
+	p.x = 850; p.y = 500;
+
+	if(intGraph == 1)
+		affiche_piece_ig1(p,piece);
+	else
+		affiche_piece_ig2(p,piece);
+
+	piece.joueur = J2;
+	p.x+= 200;
+
+	if(intGraph == 1)
+		affiche_piece_ig1(p,piece);
+	else
+		affiche_piece_ig2(p,piece);
+}
+
+void affiche_informations_dynamiques(COMPTEUR compteur, int tour, BOOL multiplePossible, int intGraph)
+{
+	POINT p;
+	PIECE piece;
+
+	p.x = 1050; p.y = 725;
+	efface_zone_pion(p);
+
+	piece.type = PION;
+	if(tour%2 == 1)
+		piece.joueur = J1;
+	else
+		piece.joueur = J2;
+
+	if(intGraph == 1)
+		affiche_piece_ig1(p,piece);
+	else
+		affiche_piece_ig2(p,piece);
+
+	p.x = 1030; p.y = 650;
+	efface_zone_chiffre(p);
+	aff_int(tour,32,p,blanc);
+
+	p.y= 522;
+	if(intGraph == 1)
+		p.x = 890;
+	else
+		p.x = 910;
+
+	efface_zone_chiffre(p);
+	aff_int(compteur.j1,32,p,blanc);
+
+	p.x += 200;
+	efface_zone_chiffre(p);
+	aff_int(compteur.j2,32,p,blanc);
+
+	if(multiplePossible)
+		affiche_bouton_stop();
+	else
+		efface_bouton_stop();
+
+	affiche_all();
+}
+
+void efface_zone_chiffre(POINT centre)
+{
+	POINT p1, p2;
+	p1 = centre; p2 = centre;
+	p1.x -= TAILLE / 40; p1.y += TAILLE / 40;
+	p2.x += TAILLE / 20; p2.y -= TAILLE / 20;
+	draw_fill_rectangle(p1,p2,coulFond);
+}
+
+void affiche_bouton_stop()
+{
+	POINT p1, p2, p3;
+
+	p1.x = 875; p1.y = 300;
+
+	p2.x = p1.x + 250;
+	p2.y = p1.y - 100;
+
+	draw_fill_rectangle(p1,p2,darkred);
+
+	p1.x += 5; p1.y -= 5;
+	p2.x -= 5; p2.y += 5;
+	p3.x = p1.x; p3.y = p2.y;
+	draw_fill_triangle(p2,p1,p3,crimson);
+
+	p3.x = p2.x; p3.y = p1.y;
+	draw_fill_triangle(p2,p1,p3,coral);
+
+	p1.y -= 20; p1.x += 65;
+	aff_pol("STOP",40,p1,floralwhite);
+}
+
+void efface_bouton_stop()
+{
+	POINT p1,p2;
+
+	p1.x = 875; p1.y = 300;
+
+	p2.x = p1.x + 250;
+	p2.y = p1.y - 100;
+
+	draw_fill_rectangle(p1,p2,coulFond);
+}
+
+void efface_zone_pion(POINT centre)
+{
+	POINT p1, p2;
+	p1 = centre; p2 = centre;
+	p1.x -= TAILLE / 40; p1.y += TAILLE / 40;
+	p2.x += TAILLE / 40; p2.y -= TAILLE / 40;
+	draw_fill_rectangle(p1,p2,coulFond);
+}
+
+void reset_etat_cases()
+{
+	int i, j;
+
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			if(tabJeu[i][j].etat != NORMAL)
+				tabJeu[i][j].etat = NORMAL;
+		}
+	}
+}
+
+void affiche_etat_des_cases(int intGraph)
+{
+	int i,j;
+	numCase indice;
+
+	for(i=0;i<10;i++)
+	{
+		for(j=0;j<10;j++)
+		{
+			indice.l = i;
+			indice.c = j;
+
+			switch(tabJeu[i][j].etat)
+			{
+				case NORMAL:
+					efface_etat_case(intGraph,indice);
+					break;
+
+				default:
+					affiche_etat_case_select_ou_jouable(intGraph,indice);
+			}
+		}
+	}
+	affiche_all();
+}
+
+void efface_etat_case(int intGraph, numCase indice)
+{
+	POINT p, p1, p2;
+	int i;
+
+	if(intGraph == 1)
+		p = transforme_indice_en_point_ig1(indice);
+	else
+		p = transforme_indice_en_point_ig2(indice);
+
+	for(i=0;i<4;i++)
+	{
+		if(intGraph == 1)
+		{
+			if(!est_parite_egale(indice.l,indice.c))
+				draw_circle(p,TAILLE/22-i,noir);
+			else
+			{
+				if(i == 0)
+					draw_circle(p,TAILLE/22-i,noir);
+				else
+					draw_circle(p,TAILLE/22-i,white);
+			}
+		}
+		else
+		{
+			p2.x = p.x + TAILLE/20 - i; p2.y = p.y - TAILLE/20 + i;
+			p1.x = p.x - TAILLE/20 + i; p1.y = p.y + TAILLE/20 - i;
+
+			if(est_parite_egale(indice.l,indice.c))
+				draw_rectangle(p1,p2,coulPlatClair);
+			else
+				draw_rectangle(p1,p2,coulPlatSombre);
+		}
+	}
+}
+
+void affiche_etat_case_normal(int intGraph, numCase indice)
+{
+	POINT p, p1, p2;
+	int i;
+
+	if(intGraph == 1)
+		p = transforme_indice_en_point_ig1(indice);
+	else
+		p = transforme_indice_en_point_ig2(indice);
+
+	for(i=0;i<4;i++)
+	{
+		if(intGraph == 1)
+			draw_circle(p,TAILLE/22-i,rouge);
+		else
+		{
+			p2.x = p.x + TAILLE/20 - i; p2.y = p.y - TAILLE/20 + i;
+			p1.x = p.x - TAILLE/20 + i; p1.y = p.y + TAILLE/20 - i;
+			draw_rectangle(p1,p2,rouge);
+		}
+
+		if(i == 3)
+		{
+			affiche_all();
+			usleep(200000);
+			efface_etat_case(intGraph,indice);
+			affiche_all();
+		}
+	}
+}
+
+void affiche_etat_case_select_ou_jouable(int intGraph, numCase indice)
+{
+	POINT p, p1, p2;
+	int i;
+	COULEUR coulEtat;
+
+	if(intGraph == 1)
+		p = transforme_indice_en_point_ig1(indice);
+	else
+		p = transforme_indice_en_point_ig2(indice);
+
+	if(tabJeu[indice.l][indice.c].etat == SELECT)
+		coulEtat = lime;
+	else
+		coulEtat = steelblue;
+
+	for(i=0;i<4;i++)
+	{
+		if(intGraph == 1)
+			draw_circle(p,TAILLE/22-i,coulEtat);
+		else
+		{
+			p2.x = p.x + TAILLE/20 - i; p2.y = p.y - TAILLE/20 + i;
+			p1.x = p.x - TAILLE/20 + i; p1.y = p.y + TAILLE/20 - i;
+			draw_rectangle(p1,p2,coulEtat);
+		}
+	}
+}
+
+void applique_coup_vue(numCase depart, numCase arrivee, int intGraph)
+{
+	POINT p;
+	numCase adversaire;
+	adversaire.l = 0; adversaire.c = 0;
+
+	if(intGraph == 1)
+	{
+		p = transforme_indice_en_point_ig1(arrivee);
+		affiche_piece_ig1(p,tabJeu[arrivee.l][arrivee.c]);
+		p = transforme_indice_en_point_ig1(depart);
+	}
+	else
+	{
+		p = transforme_indice_en_point_ig2(arrivee);
+		affiche_piece_ig2(p,tabJeu[arrivee.l][arrivee.c]);
+		p = transforme_indice_en_point_ig2(depart);
+	}
+
+	efface_piece(p,intGraph);
+
+	if(abs(depart.l - arrivee.l) == 2)
+	{
+		adversaire.l = (arrivee.l + depart.l) / 2;
+		adversaire.c = (arrivee.c + depart.c) / 2;
+
+		if(intGraph == 1)
+		   p = transforme_indice_en_point_ig1(adversaire);
+		else
+		   p = transforme_indice_en_point_ig2(adversaire);
+
+		efface_piece(p,intGraph);
+	}
+
+	affiche_all();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+					//-----==========[ CONTROLEUR ]==========-----//
+
+int choix_interface_graphique()
+{
+	POINT p;
+	int intGraph;
+
+	do
+	{
+		p = wait_clic();
+	}while(((p.x > 450 || p.x < 350) || (p.y > 450 || p.y < 350)) && ((p.x > 850 || p.x < 750) || (p.y > 450 || p.y < 350)));
+
+	if((p.x < 450 && p.x > 350) && (p.y < 450 && p.y > 350))
+		intGraph = 1;
+	else
+		intGraph = 2;
+
+	return intGraph;
+}
+
+BOOL choix_ecran_fin()
+{
+	POINT p;
+
+	do
+	{
+		p = wait_clic();
+	}while(((p.x > 500 || p.x < 300) || (p.y > 240 || p.y < 160)) && ((p.x > 900 || p.x < 700) || (p.y > 240 || p.y < 160)));
+
+	if((p.x < 500 && p.x > 300) && (p.y < 240 && p.y > 160))
+		return true;
+	else
+		return false;
+}
+
+numCase transforme_point_en_indice_ig1(POINT p)
+{
+	numCase indice;
+
+	indice.c = p.x/(TAILLE/10);
+	indice.l = p.y/(TAILLE/10);
+
+	return indice;
+}
+
+numCase transforme_point_en_indice_ig2(POINT p)
+{
+	numCase indice;
+
+	indice.l = p.x/(TAILLE/10);
+	indice.c = (TAILLE-p.y)/(TAILLE/10);
+
+	return indice;
+}
+
+POINT transforme_indice_en_point_ig1(numCase indice)
+{
+	POINT p;
+	p.x = TAILLE/20 + indice.c * (TAILLE/10);
+	p.y = TAILLE/20 + indice.l * (TAILLE/10);
+
+	return p;
+}
+
+POINT transforme_indice_en_point_ig2(numCase indice)
+{
+	POINT p;
+
+	p.x = indice.l*TAILLE/10 + TAILLE/20;
+	p.y = TAILLE - (indice.c*TAILLE/10 + TAILLE/20);
+
+	return p;
+}
+
+BOOL est_dans_jeu(POINT p)
+{
+	if(p.x < TAILLE && p.y < TAILLE)
+		return true;
+	else
+		return false;
+}
+
+BOOL est_arrivee_possible(numCase indice, int intGraph)
+{
+	if(tabJeu[indice.l][indice.c].etat == NORMAL)
+	{
+		affiche_etat_case_normal(intGraph,indice);
+		return false;
+	}
+	else
+		return true;
+}
+
+BOOL peut_prise_multiple(numCase arrivee, BOOL prise)
+{
+	int cpt = 0, temp, coulAdverse;
+
+	if(prise)
+	{
+		if(tabJeu[arrivee.l][arrivee.c].joueur == J1)
+			coulAdverse = J2;
+		else
+			coulAdverse = J1;
+
+		if(tabJeu[arrivee.l][arrivee.c].type == DAME || tabJeu[arrivee.l][arrivee.c].joueur == J1)
+		{
+			temp = arrivees_j1_avec_prise(arrivee,coulAdverse);
+			cpt += temp;
+		}
+
+		if(tabJeu[arrivee.l][arrivee.c].type == DAME || tabJeu[arrivee.l][arrivee.c].joueur == J2)
+		{
+			temp = arrivees_j2_avec_prise(arrivee,coulAdverse);
+			cpt += temp;
+		}
+
+		if(cpt != 0)
+			return true;
+	}
+
+	return false;
+}
+
+BOOL clic_stop(POINT p, BOOL multiplePossible)
+{
+	if(multiplePossible && ((p.x < 1125 && p.x > 875) && (p.y < 300 && p.y > 200)))
+		return true;
+	else
+		return false;
+}
+
+/*controleur*/
+
+int main()
+{
+	int intGraph, tour;
+	POINT p;
+	numCase indice, depart;
+	COMPTEUR compteur;
+	BOOL multiplePossible = false, prise = false, clicStop = false;
+
+	do
+	{
+		init_graphics(TAILLE*1.5,TAILLE);
+		affiche_auto_off();
+
+		init_tabJeu();
+		affiche_ecran_titre();
+		intGraph = choix_interface_graphique();
+		affiche_fenetre(intGraph);
+		compteur.j1 = 20; compteur.j2 = 20;
+		tour = 0;
+
+		do
+		{
+			reset_etat_cases();
+
+			if(!clicStop && tour != 0)
+				multiplePossible = peut_prise_multiple(indice,prise);
+			else
+				multiplePossible = false;
+
+			if(!multiplePossible)
+				tour++;
+
+			do
+			{
+				affiche_informations_dynamiques(compteur,tour,multiplePossible,intGraph);
+				clicStop = false;
+
+				if(!multiplePossible)
+				{
+					reset_etat_cases();
+					affiche_etat_des_cases(intGraph);
+
+					do
+					{
+						p = wait_clic();
+
+						if(est_dans_jeu(p))
+						{
+							if(intGraph == 1)
+								indice = transforme_point_en_indice_ig1(p);
+							else
+								indice = transforme_point_en_indice_ig2(p);
+						}
+
+						if(!arrivees_possibles(indice,tour))
+							affiche_etat_case_normal(intGraph,indice);
+
+					}while(!est_dans_jeu(p) || !arrivees_possibles(indice,tour));
+				}
+
+				affiche_etat_des_cases(intGraph);
+				depart = indice;
+
+				do
+				{
+					p = wait_clic();
+
+					if(est_dans_jeu(p))
+					{
+						if(intGraph == 1)
+							indice = transforme_point_en_indice_ig1(p);
+						else
+							indice = transforme_point_en_indice_ig2(p);
+					}
+					else
+					{
+						clicStop = clic_stop(p,multiplePossible);
+					}
+				}while((!est_dans_jeu(p) || !est_arrivee_possible(indice,intGraph)) && !clicStop);
+
+				if(indice.l == depart.l + 2 || indice.l == depart.l - 2)
+					prise = true;
+				else
+					prise = false;
+
+			}while(tabJeu[indice.l][indice.c].etat == SELECT);
+
+			if(!clicStop)
+			{
+				compteur = applique_coup_tab(depart,indice,compteur);
+				applique_coup_vue(depart,indice,intGraph);
+			}
+
+		}while(compteur.j1 != 0 && compteur.j2 != 0 && !est_joueur_bloque(tour+1));
+
+		affiche_ecran_fin(intGraph,tour+1);
+
+	}while(choix_ecran_fin());
+
+	return 0;
+}
